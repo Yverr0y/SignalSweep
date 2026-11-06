@@ -1,0 +1,51 @@
+name: Upstream status (read-only)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-status
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout fork history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Compare against original project
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/B0z0dcl0wn/SignalSweep.git
+          git fetch --no-tags upstream refs/heads/main:refs/remotes/upstream/main
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          counts=$(git rev-list --left-right --count refs/remotes/origin/main...refs/remotes/upstream/main)
+          read -r ahead behind <<< "$counts"
+          if [[ "$ahead" -eq 0 && "$behind" -eq 0 ]]; then status=CURRENT
+          elif [[ "$ahead" -eq 0 ]]; then status=BEHIND
+          elif [[ "$behind" -eq 0 ]]; then status=AHEAD
+          else status=DIVERGED; fi
+          {
+            echo "## SignalSweep upstream comparison"
+            echo ""
+            echo "- Fork: `Yverr0y/SignalSweep` (main)"
+            echo "- Upstream: `B0z0dcl0wn/SignalSweep` (main)"
+            echo "- Status: **$status**"
+            echo "- Fork-only commits: **$ahead**"
+            echo "- Upstream-only commits: **$behind**"
+            echo "- Fork SHA: `$(git rev-parse refs/remotes/origin/main)`"
+            echo "- Upstream SHA: `$(git rev-parse refs/remotes/upstream/main)`"
+            echo ""
+            echo "Read-only check. No merges, pushes, or workflow execution from upstream."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Status=$status fork-only=$ahead upstream-only=$behind"
